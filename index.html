@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Танчики</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /*  Предотвращает появление полос прокрутки */
+        }
+        canvas {
+            display: block; /* Убирает отступы у канвы */
+        }
+        #winsCounter { /* Стиль для счетчика побед */
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 5px;
+            border-radius: 5px;
+            z-index: 10; /*  Чтобы был виден поверх канвы */
+        }
+    </style>
+</head>
+<body>
+    <div id="winsCounter">Победы: 0</div>  <!-- Добавляем div для отображения счетчика побед -->
+    <canvas id="gameCanvas"></canvas>
+    <div id="gameOverMenu" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background-color:rgba(0,0,0,0.7); padding:20px; border-radius:10px; text-align:center;">
+        <h2 style="color:white;">Игра окончена!</h2>
+        <button onclick="restartGame()" style="padding:10px 20px; font-size:16px; cursor:pointer;">Начать заново</button>
+    </div>
+
+    <div id="gameWonMenu" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background-color:rgba(0,0,0,0.7); padding:20px; border-radius:10px; text-align:center;">
+        <h2 style="color:white;">Вы выиграли!</h2>
+        <button onclick="restartGame()" style="padding:10px 20px; font-size:16px; cursor:pointer;">Начать заново</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const winsCounterElement = document.getElementById('winsCounter'); // Получаем элемент счетчика побед
+
+        // Устанавливаем размер канвы на весь экран
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // redrawMap(); // Нужно перерисовать карту после изменения размера
+        }
+
+        resizeCanvas(); // Инициализация при загрузке страницы
+
+        window.addEventListener('resize', resizeCanvas); // Обработчик изменения размера окна
+
+        let x = canvas.width / 2;
+        let y = canvas.height - 100;
+        const speed = 3;
+        let mx = 0;
+        let my = 0;
+
+        const tankImage = new Image();
+        tankImage.src = 'танк.png'; // Хороший танк
+
+        const bulletImage = new Image();
+        bulletImage.src = 'пуля.png'; // пули
+
+        const explosionImage = new Image();
+        explosionImage.src = 'взрыв.png'; // взрыв
+
+        const enemyTankImage = new Image();
+        enemyTankImage.src = 'враг.png'; // враг
+
+        const mapImage = new Image();
+        mapImage.src = 'карта.png'; // Карта
+
+        mapImage.onload = () => {
+            redrawMap(); // Перерисовываем карту после загрузки изображения
+            gameLoop(); // Запускаем игровой цикл после загрузки карты
+        };
+
+        const tank = {
+            width: 60,
+            height: 60,
+            lives: 3
+        };
+
+        const bullets = [];
+        let explosion = null;
+
+        const enemyTanks = [];
+        const enemyBullets = [];
+
+        let gameWon = false; // Добавляем переменную для отслеживания победы
+        let gameOver = false; // Добавляем переменную для отслеживания проигрыша
+
+        let wins = 0;  // Добавляем переменную для хранения количества побед
+
+        // Функция для создания вражеского танка
+        function createEnemyTank() {
+            const newTank = {
+                x: Math.random() * (canvas.width - 50), // Случайная позиция по X
+                y: Math.random() * (canvas.height / 2), // Случайная позиция по Y в верхней половине экрана
+                width: 100,
+                height: 100,
+                lives: 2,
+                alive: true,
+                speed: Math.random() * 1 + 0.5, // Случайная скорость
+                movingRight: Math.random() < 0.5, // Случайное направление движения
+                lastShotTime: 0, // Время последнего выстрела
+                moveTimer: Math.random() * 3000 + 2000, // Случайный интервал смены направления (2-5 сек)
+                lastMoveChange: 0, // Время последней смены направления
+                movingUp: Math.random() < 0.5 // Случайное направление движения по вертикали
+            };
+            enemyTanks.push(newTank);
+        }
+
+        function initializeGame(){
+          x = canvas.width / 2;
+          y = canvas.height - 100;
+          tank.lives = 3;
+          bullets.length = 0;
+          enemyTanks.length = 0;
+          enemyBullets.length = 0;
+          gameWon = false;
+          gameOver = false;
+
+          for (let i = 0; i < 5; i++) {
+              createEnemyTank();
+          }
+        }
+
+        // Создаем несколько вражеских танков
+        initializeGame();
+
+        document.addEventListener('click', (event) => {
+            shootBullet(event.clientX, event.clientY);
+        });
+
+        function shootBullet(targetX, targetY) {
+            const startX = x + tank.width / 2; // Стреляем из центра танка, а не из верхнего левого угла
+            const startY = y + tank.height / 2;
+            const angle = Math.atan2(targetY - startY, targetX - startX);
+
+            bullets.push({
+                x: startX,
+                y: startY,
+                width: 50, // Меньший размер пули выглядит лучше
+                height: 50,
+                speed: 7,
+                dx: Math.cos(angle) * 7,
+                dy: Math.sin(angle) * 7
+            });
+        }
+
+        function updateBullets() {
+            bullets.forEach((bullet, index) => {
+                bullet.x += bullet.dx;
+                bullet.y += bullet.dy;
+                if (bullet.x + bullet.width < 0 || bullet.x > canvas.width ||
+                    bullet.y + bullet.height < 0 || bullet.y > canvas.height) {
+                    bullets.splice(index, 1);
+                }
+            });
+            enemyBullets.forEach((bullet, index) => {
+                bullet.x += bullet.dx;
+                bullet.y += bullet.dy;
+                if (bullet.x + bullet.width < 0 || bullet.x > canvas.width ||
+                    bullet.y + bullet.height < 0 || bullet.y > canvas.height) {
+                    enemyBullets.splice(index, 1);
+                }
+            });
+        }
+
+        function drawTank() {
+            // Добавлена проверка на границы экрана для игрока
+            x += mx;
+            y += my;
+
+            if (x < 0) {
+                x = 0;
+            } else if (x > canvas.width - tank.width) {
+                x = canvas.width - tank.width;
+            }
+
+            if (y < 0) {
+                y = 0;
+            } else if (y > canvas.height - tank.height) {
+                y = canvas.height - tank.height;
+            }
+            ctx.drawImage(tankImage, x, y, tank.width, tank.height);
+            // Отображение жизней игрока
+            ctx.font = '20px Arial';
+            ctx.fillStyle = 'black';
+            ctx.fillText(`Lives: ${tank.lives}`, x, y - 10);
+        }
+
+        function moveEnemy(enemyTank) {
+            const now = Date.now();
+
+            //Случайное изменение направления по горизонтали
+            if (now - enemyTank.lastMoveChange > enemyTank.moveTimer) {
+                enemyTank.movingRight = Math.random() < 0.5;
+                enemyTank.movingUp = Math.random() < 0.5;
+                enemyTank.lastMoveChange = now;
+                enemyTank.moveTimer = Math.random() * 3000 + 2000; // Новый интервал
+            }
+
+            // Движение по горизонтали
+            if (enemyTank.movingRight) {
+                enemyTank.x += enemyTank.speed;
+                if (enemyTank.x >= canvas.width - enemyTank.width) {
+                    enemyTank.movingRight = false; // Изменение направления при достижении края
+                }
+            } else {
+                enemyTank.x -= enemyTank.speed;
+                if (enemyTank.x <= 0) {
+                    enemyTank.movingRight = true; // Изменение направления при достижении края
+                }
+            }
+
+            // Движение по вертикали
+            if (enemyTank.movingUp) {
+                enemyTank.y -= enemyTank.speed;
+                if (enemyTank.y <= 0) {
+                    enemyTank.movingUp = false;
+                }
+            } else {
+                enemyTank.y += enemyTank.speed;
+                if (enemyTank.y >= canvas.height / 2) { // Предел по Y для врагов
+                    enemyTank.movingUp = true;
+                }
+            }
+
+
+            // Добавлена проверка на границы экрана для врага
+            if (enemyTank.y < 0) {
+                enemyTank.y = 0;
+            } else if (enemyTank.y > canvas.height - enemyTank.height) {
+                enemyTank.y = canvas.height - enemyTank.height;
+            }
+        }
+
+        function enemyShoot(enemyTank) {
+            const now = Date.now();
+            if (now - enemyTank.lastShotTime > 2000) { // Стрелять раз в 2 секунды
+                enemyTank.lastShotTime = now;
+
+                const angle = Math.atan2(y - enemyTank.y, x - enemyTank.x); // Стрельба в игрока
+
+                enemyBullets.push({
+                    x: enemyTank.x + enemyTank.width / 2,
+                    y: enemyTank.y + enemyTank.height / 2,
+                    width: 50,
+                    height: 50,
+                    speed: 3,
+                    dx: Math.cos(angle) * 3,
+                    dy: Math.sin(angle) * 3
+                });
+            }
+        }
+
+        function drawBullets() {
+            bullets.forEach(bullet => {
+                ctx.drawImage(bulletImage, bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+            enemyBullets.forEach(bullet => {
+                ctx.drawImage(bulletImage, bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+        }
+
+        function drawEnemyTank(tank) {
+            if (tank.alive) {
+                ctx.drawImage(enemyTankImage, tank.x, tank.y, tank.width, tank.height);
+                ctx.font = '16px Arial';
+                ctx.fillStyle = 'black';
+                ctx.fillText(`Lives: ${tank.lives}`, tank.x, tank.y - 10);
+            }
+        }
+
+      function checkBulletCollision() {
+        bullets.forEach((bullet, bulletIndex) => {
+          enemyTanks.forEach((enemyTank, enemyIndex) => {
+            if (
+              enemyTank.alive &&
+              bullet.x < enemyTank.x + enemyTank.width &&
+              bullet.x + bullet.width > enemyTank.x &&
+              bullet.y < enemyTank.y + enemyTank.height &&
+              bullet.y + bullet.height > enemyTank.y
+            ) {
+              enemyTank.lives -= 1;
+              bullets.splice(bulletIndex, 1);
+
+              if (enemyTank.lives <= 0) {
+                enemyTank.alive = false;
+                explosion = {
+                  x: enemyTank.x + enemyTank.width / 2 - 25,
+                  y: enemyTank.y + enemyTank.height / 2 - 25,
+                  size: 100,
+                  duration: 20,
+                };
+              }
+            }
+          });
+        });
+        enemyBullets.forEach((bullet, bulletIndex) => {
+          if (
+            bullet.x < x + tank.width &&
+            bullet.x + bullet.width > x &&
+            bullet.y < y + tank.height &&
+            bullet.y + bullet.height > y
+          ) {
+            tank.lives -= 1;
+            enemyBullets.splice(bulletIndex, 1);
+            if (tank.lives <= 0) {
+              gameOver = true; // Устанавливаем флаг Game Over
+              showGameOverMenu();
+            }
+          }
+        });
+      }
+
+        function drawExplosion() {
+            if (explosion) {
+                ctx.drawImage(explosionImage, explosion.x, explosion.y, explosion.size, explosion.size);
+                explosion.duration -= 1;
+
+                if (explosion.duration <= 0) {
+                    explosion = null;
+                }
+            }
+        }
+
+        const keys = {};
+
+        function keyDownHandler(event) {
+            keys[event.key] = true;
+        }
+
+        function keyUpHandler(event) {
+            keys[event.key] = false;
+        }
+
+        // Функция для перерисовки карты
+        function redrawMap() {
+            ctx.drawImage(mapImage, 0, 0, canvas.width, canvas.height);
+        }
+
+        // Задаем обработчики событий клавиатуры
+        document.addEventListener('keydown', keyDownHandler);
+        document.addEventListener('keyup', keyUpHandler);
+
+        function showGameOverMenu() {
+            document.getElementById('gameOverMenu').style.display = 'block';
+        }
+
+        function shoGameWonMenu() {
+            document.getElementById('gameWonMenu').style.display = 'block';
+        }
+
+        function restartGame() {
+            document.getElementById('gameOverMenu').style.display = 'none';
+            document.getElementById('gameWonMenu').style.display = 'none';
+            initializeGame();
+            gameLoop();
+        }
+
+        function updateGameStatus() {
+            const allEnemiesDefeated = enemyTanks.every(tank => !tank.alive);
+            if (allEnemiesDefeated) {
+                gameWon = true;
+                wins++; // Увеличиваем счетчик побед
+                winsCounterElement.textContent = `Победы: ${wins}`; // Обновляем текст счетчика
+                shoGameWonMenu();
+            }
+        }
+
+
+        function updateTankPosition() {
+            mx = 0;
+            my = 0;
+
+            if (keys['d']) {
+                mx = speed;
+            }
+            if (keys['a']) {
+                mx = -speed;
+            }
+            if (keys['w']) {
+                my = -speed;
+            }
+            if (keys['s']) {
+                my = speed;
+            }
+        }
+
+        function gameLoop() {
+            if(gameOver || gameWon) return;
+
+            // 1. Очистка экрана
+            // ctx.clearRect(0, 0, canvas.width, canvas.height);
+            redrawMap(); // Перерисовываем карту
+
+            // 2. Обновление состояния игры
+            updateTankPosition(); // Обновляем позицию танка на основе нажатых клавиш
+            updateBullets();
+            enemyTanks.forEach(enemyTank => {
+                if (enemyTank.alive) {
+                    moveEnemy(enemyTank);
+                    enemyShoot(enemyTank);
+                }
+            });
+            checkBulletCollision();
+            updateGameStatus(); // Проверяем, выиграл ли игрок
+
+            // 3. Отрисовка игровых объектов
+            drawTank();
+            drawBullets();
+            enemyTanks.forEach(drawEnemyTank);
+            drawExplosion();
+
+            // 4. Запрос следующего кадра анимации
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
